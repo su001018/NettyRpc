@@ -1,0 +1,6 @@
+# Project exclude paths
+/api/target/
+/client-spring-boot-starter/target/
+/consumer/target/
+/provider/target/
+/server-spring-boot-starter/target/
