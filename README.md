@@ -82,6 +82,199 @@ HTTP 通过设置回车符、换行符作为 HTTP 报文协议的边界。
 ##### 自定义消息结构
 可以自定义一个消息结构，由包头和数据组成，其中包头包是固定大小的，而且包头里有一个字段来说明紧随其后的数据有多大。当接收方接收到包头的大小（比如 4 个字节）后，
 就解析包头的内容，于是就可以知道数据的长度，然后接下来就继续读取数据，直到读满数据的长度，就可以组装成一个完整到用户消息来处理了。本项目也采用这种处理方法。
+#### 3.1.2 自定义消息
+消息对象`Message`由两部分组成，分别是消息头`messageHeader`和消息体`messageBody`。
+```java
+public class Message<T> implements Serializable {
+    //消息头
+    MessageHeader messageHeader;
+    //消息内容
+    T messageBody;
+}
+```
+##### MessageHeader
+设计的消息格式如下图所示
+![picture](https://gitee.com/su_ya_kang/NettyRpc/raw/master/picture/message-header.png)  
+消息头部固定为18字节，魔数指定为0x52，版本假定为1.
+```java
+public class Constants {
+    //消息头总长度
+    public static final int HEADER_LEN=18;
+    //标识魔数
+    public static final short MAGIC=0x52;
+    //版本号
+    public static final byte VERSION=1;
+
+}
+```
+因此`MessageHeader`的成员如下：
+```java
+public class MessageHeader implements Serializable {
+    //产生消息id
+    private static AtomicLong num = new AtomicLong(0);
+    private short magic;
+    private byte version;
+    private byte serialization;
+    private byte type;
+    private byte status;
+    private long id;
+    private int length;
+}
+```
+##### MessageBody
+`MessageBody`表示消息的内容，有两种类型，分别是客户端请求`MessageRequest`和服务端应答`MessageResponse`。
+###### MessageRequest
+包含了客户端请求的服务名称，调用的方法名，参数类型和参数列表。
+```java
+public class MessageRequest implements Serializable {
+    //服务名称
+    private String ServiceName;
+    //调用方法名
+    private String method;
+    //方法参数类型
+    Class<?>[] parameterTypes;
+    //方法参数
+    Object[] parameters;
+}
+```
+###### MessageResponse
+若请求成功，则`data`字段包含了请求结果，否则`message`字段包含了错误信息。
+```java
+public class MessageResponse implements Serializable {
+    //回应数据
+    private Object data;
+    //错误信息
+    private String message;
+
+}
+```
+#### 3.1.3 序列化
+网络传输的数据均为字节形式，因此想要传输对象，必须将其转化为字节形式，同样收到字节数组也要能将其转化为对象。
+把对象转化为可传输的字节序列过程称为**序列化**，把字节序列还原为对象的过程称为**反序列化**。  
+定义接口`Serialization`，序列化的不同实现方式都要继承该接口，提供序列化和反序列化方法。
+```java
+public interface Serialization {
+    byte[] serialize(Object obj) throws IOException;
+    <T>T deserialize(byte[] data,Class<T>clz) throws IOException;
+}
+```
+##### JSON
+利用`jackson`提供的`ObjectMapper`实现序列化和反序列化。
+```java
+public class JsonSerialization implements Serialization{
+    private static final ObjectMapper MAPPER;
+    @Override
+    public byte[] serialize(Object obj) throws IOException {
+        return obj instanceof String ? ((String) obj).getBytes() : MAPPER.writeValueAsString(obj).getBytes(StandardCharsets.UTF_8);
+    }
+    @Override
+    public <T> T deserialize(byte[] data, Class<T> clz) throws IOException {
+        return MAPPER.readValue(new String(data), clz);
+    }
+}
+```
+
+#### 3.1.4 编码器和解码器
+由于网络传输的数据都是字节，因此我们需要在消息发送时将其编码为字节数组，
+接收消息时，将其从字节数组回复到消息对象，即编码器和解码器。
+##### ByteBuf
+`ByteBuf`是`netty`的`Server`与`Client`之间通信的数据传输载体(`Netty`的数据容器)，它提供了一个`byte`数组(`byte[]`)的抽象视图，既解决了`JDK API`的局限性，又为网络应用程序的开发者提供了更好的`API`。  
+* `ByteBuf`维护了两个不同的索引，一个用于读取，一个用于写入。`readerIndex`和`writerIndex`的初始值都是0，当从`ByteBuf`中读取数据时，它的`readerIndex`将会被递增(它不会超过`writerIndex`)，当向`ByteBuf`写入数据时，它的`writerIndex`会递增。
+* 名称以`readXXX`或者`writeXXX`开头的`ByteBuf`方法，会推进对应的索引，而以`setXXX`或`getXXX`开头的操作不会。
+* 在读取之后，0～`readerIndex`的就被视为`discard`的，调用`discardReadBytes`方法，可以释放这部分空间，它的作用类似`ByteBuffer`的`compact()`方法。
+* `readerIndex`和`writerIndex`之间的数据是可读取的，等价于`ByteBuffer`的`position`和`limit`之间的数据。`writerIndex`和`capacity`之间的空间是可写的，等价于`ByteBuffer`的`limit`和`capacity`之间的可用空间。
+* `markXXX`会记录`readerIndex`或`writerIndex`的原始位置，调用`resetXXX`方法后会将`readerIndex`或`writerIndex`复原到记录的旧值。
+##### 编码器`MessageEncoder`
+`MessageEecoder`继承`netty`中的`MessageToByteEncoder<T>`类，通过实现方法`encode()`将`T`类型对象编码为字节数组并填入`ByteBuf`。其中的泛型`T`赋值为`Message<T>`，即对`Message`对象编码。  
+
+先读取消息头`MessageHeader`的内容填入`ByteBuf`，之后将消息体`MessageBody`序列化之后的`byte[]`数组填入`ByteBuf`。需要注意的是，序列化`MessageBody`之后得到`byte[]`数组的长度，才能确定`MessageHeader`中的`length`字段。
+```java
+public class MessageEncoder<T> extends MessageToByteEncoder<Message<T>> {
+    protected void encode(ChannelHandlerContext channelHandlerContext, Message<T> tMessage, ByteBuf byteBuf) throws Exception {
+        System.out.println("==========encoder===========");
+        //获取消息头
+        MessageHeader header = tMessage.getMessageHeader();
+        //编码
+        byteBuf.writeShort(header.getMagic());
+        byteBuf.writeByte(header.getVersion());
+        byteBuf.writeByte(header.getSerialization());
+        byteBuf.writeByte(header.getType());
+        byteBuf.writeByte(header.getStatus());
+        byteBuf.writeLong(header.getId());
+        //序列化对象
+        Serialization serialization = SerializationFactory.getSerialization(SerializationType.findType(header.getSerialization()));
+        byte[] data = serialization.serialize(tMessage.getMessageBody());
+        byteBuf.writeInt(data.length);
+        byteBuf.writeBytes(data);
+    }
+}
+```
+##### 解码器`MessageDecoder`
+`MessageEecoder`继承`netty`中的`ByteToMessageDecoder`类，通过实现方法`decode()`将`ByteBuf`中的字节内容解码为消息对象并添加到`List<Object> list`列表。 
+
+解码步骤如下：
+1. 若`ByteBuf`中可读取内容长度小于固定的消息头长度，此时不能完整获取消息信息，直接返回，留到下次读取（`readerIndex`未改变，`ByteBuf`内容不会丢失）。
+2. 记录`readerIndex`值，若读取消息头后得到的消息内容长度值大于当前`ByteBuf`中可读取内容长度，则恢复`readerIndex`，并返回，留到下一次读取。
+3. 依次读取`MessageHeader`内容，根据`MessageHeader`中`length`字段读取`MessageBody`序列化之后的`byte[]`数组，根据`type`和`serialization`字段将`byte[]`数组反序列化为`MessageRequest`或`MessageResponse`。
+4. 构造`Message`对象，将其添加到`List<Object> list`列表。
+```java
+public class MessageDecoder extends ByteToMessageDecoder {
+    @Override
+    protected void decode(ChannelHandlerContext channelHandlerContext, ByteBuf byteBuf, List<Object> list) throws Exception {
+        //协议长度小于头部长度，放弃读取
+        if(byteBuf.readableBytes()< Constants.HEADER_LEN){
+            System.out.println("协议长度小于头部长度，放弃读取");
+            return;
+        }
+        //标记读指针位置，出错回退
+        byteBuf.markReaderIndex();
+        if(byteBuf.readShort()!=Constants.MAGIC){
+            throw new Exception("协议出错，头部魔数不匹配");
+        }
+        //读取消息头内容
+        byte version=byteBuf.readByte();
+        byte serialization=byteBuf.readByte();
+        byte type=byteBuf.readByte();
+        byte status=byteBuf.readByte();
+        long id=byteBuf.readLong();
+        int length=byteBuf.readInt();
+        //半包现象，消息内容不完整，放弃读取
+        if(byteBuf.readableBytes()<length){
+            byteBuf.resetReaderIndex();
+            System.out.println("半包现象，消息内容不完整，放弃读取");
+            return;
+        }
+        //读取消息体
+        byte[] data=new byte[length];
+        byteBuf.readBytes(data);
+        //构造消息头
+        MessageHeader header=new MessageHeader(serialization,type,id,length);
+        switch (MessageType.findType(type)){
+            case REQUEST -> {
+                Message<MessageRequest>message=new Message<>();
+                message.setMessageHeader(header);
+                MessageRequest request= SerializationFactory.getSerialization(SerializationType.findType(serialization))
+                        .deserialize(data,MessageRequest.class);
+                message.setMessageBody(request);
+                list.add(message);
+                break;
+            }
+            case RESPONSE -> {
+                Message<MessageResponse>message=new Message<>();
+                message.setMessageHeader(header);
+                MessageResponse response=SerializationFactory.getSerialization(SerializationType.findType(serialization))
+                        .deserialize(data,MessageResponse.class);
+                message.setMessageBody(response);
+                list.add(message);
+                break;
+            }
+        }
+    }
+}
+```
+
+
+ 
 
 
 
