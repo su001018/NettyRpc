@@ -76,7 +76,7 @@ TCP是面向**字节流**的协议，消息的发送取决于发送窗口、拥�
 ##### 特殊字符作为消息边界
 我们可以在两个用户消息之间插入一个特殊的字符串，这样接收方在接收数据时，读到了这个特殊字符，就把认为已经读完一个完整的消息。  
 HTTP 是一个非常好的例子。  
-![picture](https://gitee.com/su_ya_kang/NettyRpc/raw/master/picture/http-message.jpg)  
+![picture](https://gitee.com/su_ya_kang/NettyRpc/raw/master/picture/http-message.png)  
 HTTP 通过设置回车符、换行符作为 HTTP 报文协议的边界。  
 有一点要注意，这个作为边界点的特殊字符，如果刚好消息内容里有这个特殊字符，我们要对这个字符转义，避免被接收方当作消息的边界点而解析到无效的数据。
 ##### 自定义消息结构
