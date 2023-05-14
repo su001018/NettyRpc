@@ -10,7 +10,7 @@ public class ServerProperties {
     //服务启动端口
     int port=8081;
     //注册中心地址
-    String registryAddress="127.0.0.1:2181";
+    String registryAddress;
 
 
 }

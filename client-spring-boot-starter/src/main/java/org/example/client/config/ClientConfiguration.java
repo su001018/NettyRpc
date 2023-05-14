@@ -25,6 +25,7 @@ public class ClientConfiguration {
         return result.get();
     }
 
+
     @Bean
     @ConditionalOnMissingBean
     public ClientStubProxyFactory getClientStubProxyFactory(){
@@ -47,9 +48,9 @@ public class ClientConfiguration {
             @Autowired ServiceDetailsDiscovery serviceDetailsDiscovery,
             @Autowired ClientProperties clientProperties
     ){
-        System.out.println("===============getClientProcessor================");
         return new ClientProcessor(clientStubProxyFactory, serviceDetailsDiscovery, clientProperties);
     }
+
 
 
 }

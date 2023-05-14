@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 
 public class JsonSerialization implements Serialization{
 
@@ -30,6 +29,7 @@ public class JsonSerialization implements Serialization{
         return customMapper;
     }
 
+    @Override
     public byte[] serialize(Object obj) throws IOException {
         return obj instanceof String ? ((String) obj).getBytes() : MAPPER.writeValueAsString(obj).getBytes(StandardCharsets.UTF_8);
     }

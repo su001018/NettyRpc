@@ -8,6 +8,7 @@
         <outputRelativeToContentRoot value="true" />
         <module name="api" />
         <module name="server-spring-boot-starter" />
+        <module name="common" />
         <module name="provider" />
         <module name="client-spring-boot-starter" />
         <module name="consumer" />
@@ -18,6 +19,7 @@
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="api" options="-parameters" />
       <module name="client-spring-boot-starter" options="-parameters" />
+      <module name="common" options="-parameters" />
       <module name="consumer" options="-parameters" />
       <module name="provider" options="-parameters" />
       <module name="server-spring-boot-starter" options="-parameters" />
