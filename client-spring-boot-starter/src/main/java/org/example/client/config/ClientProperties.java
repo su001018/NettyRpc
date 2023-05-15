@@ -1,6 +1,7 @@
 package org.example.client.config;
 
 import lombok.Data;
+import org.example.client.processor.ClientProcessor;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 
@@ -12,5 +13,9 @@ public class ClientProperties {
     String registryAddress;
     //处理超时时间
     Integer timeout;
+
+    public ClientProperties(){
+        System.out.println("ClientProperties Constructor");
+    }
 
 }

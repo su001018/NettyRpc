@@ -36,7 +36,9 @@ public class ZookeeperServiceDetailsDiscovery implements ServiceDetailsDiscovery
     //需要关闭的列表
     private List<Closeable>closeableList=new ArrayList<>();
 
-    public ZookeeperServiceDetailsDiscovery(){}
+    public ZookeeperServiceDetailsDiscovery(){
+        System.out.println("ZookeeperServiceDetailsDiscovery Constructor");
+    }
     //构造函数
     public ZookeeperServiceDetailsDiscovery(String address) throws Exception {
 

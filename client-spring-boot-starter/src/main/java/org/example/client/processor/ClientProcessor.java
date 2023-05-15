@@ -23,6 +23,7 @@ public class ClientProcessor implements ApplicationContextAware, BeanFactoryPost
 
     public ClientProcessor(ClientStubProxyFactory clientStubProxyFactory, ServiceDetailsDiscovery serviceDetailsDiscovery,
                            ClientProperties clientProperties) {
+        System.out.println("ClientProcessor Constructor");
         this.clientStubProxyFactory = clientStubProxyFactory;
         this.serviceDetailsDiscovery = serviceDetailsDiscovery;
         this.clientProperties = clientProperties;
@@ -30,7 +31,7 @@ public class ClientProcessor implements ApplicationContextAware, BeanFactoryPost
 
     @Override
     public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
-        System.out.println("======================ClientProcessor setApplicationContext======================");
+        System.out.println("ClientProcessor setApplicationContext");
         this.applicationContext = applicationContext;
 //        for (String beanName : applicationContext.getBeanDefinitionNames()) {
 //            Object bean = applicationContext.getBean(beanName);
@@ -50,7 +51,7 @@ public class ClientProcessor implements ApplicationContextAware, BeanFactoryPost
 
     @Override
     public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) throws BeansException {
-        System.out.println("======================ClientProcessor postProcessBeanFactory======================");
+        System.out.println("ClientProcessor postProcessBeanFactory");
         for(String beanDefinitionName: beanFactory.getBeanDefinitionNames()){
             BeanDefinition beanDefinition=beanFactory.getBeanDefinition(beanDefinitionName);
             String beanClassName=beanDefinition.getBeanClassName();

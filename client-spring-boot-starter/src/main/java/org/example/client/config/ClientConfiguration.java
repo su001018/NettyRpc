@@ -2,6 +2,8 @@ package org.example.client.config;
 
 
 import org.example.client.processor.ClientProcessor;
+import org.example.client.processor.TestBeanFactoryProcessor;
+import org.example.client.processor.TestProcessor;
 import org.example.client.proxy.ClientStubProxyFactory;
 import org.example.common.discovery.ServiceDetailsDiscovery;
 import org.example.common.discovery.ZookeeperServiceDetailsDiscovery;
@@ -9,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.context.properties.bind.BindResult;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
@@ -40,6 +41,11 @@ public class ClientConfiguration {
     ) throws Exception {
         return new ZookeeperServiceDetailsDiscovery(clientProperties.getRegistryAddress());
     }
+    //查看postProcessBeanFactory触发时机
+    @Bean
+    public TestBeanFactoryProcessor TestBeanFactoryProcessor(){
+        return new TestBeanFactoryProcessor();
+    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -50,6 +56,13 @@ public class ClientConfiguration {
     ){
         return new ClientProcessor(clientStubProxyFactory, serviceDetailsDiscovery, clientProperties);
     }
+
+    @Bean
+    public TestProcessor testProcessor(){
+        return new TestProcessor();
+    }
+
+
 
 
 

@@ -44,7 +44,9 @@ RPC调用的详细过程如下图所示。
 `server-spring-boot-starter`模块为其提供全部的调用支持。  
 `common`模块是RPC协议中通用部分，提供包括通信协议、服务注册与发现、序列化、负载均衡等实现。  
 `client-spring-boot-starter`是消费者核心功能的实现模块，是一个SpringBoot starter项目，依赖`common`模块。  
-`server-spring-boot-starter`是生产者核心功能的实现模块，同样是一个SpringBoot starter项目，依赖`common`模块。 
+`server-spring-boot-starter`是生产者核心功能的实现模块，同样是一个SpringBoot starter项目，依赖`common`模块。   
+整体的项目依赖关系如图所示：  
+![picture](https://gitee.com/su_ya_kang/NettyRpc/raw/master/picture/nettyrpc-design.jpg)  
 > 什么是`starter`？  
 > > 在使用`Spring`开发时，若我们相位项目引入某个模块时，往往需要收到去`maven`仓库查找需要的`jar`包，并在`xml`文件中进行繁琐的配置，
 > > 并且需要留意`jar`包版本的兼容问题，这些重复繁琐的步骤很大程度上影响了我们的开发效率。`SpringBoot`为了解决上述问题，引入了`starter`机制。  
@@ -272,6 +274,165 @@ public class MessageDecoder extends ByteToMessageDecoder {
     }
 }
 ```
+### 3.2 服务注册与发现
+#### 3.2.1 Zookeeper
+ZooKeeper的数据结构，跟Unix文件系统非常类似，可以看做是一颗树，每个节点叫做ZNode。每一个节点可以通过路径来标识，结构图如下：
+![picture](https://gitee.com/su_ya_kang/NettyRpc/raw/master/picture/zookeeper-design.png)  
+ZNode分为两种类型：  
+短暂/临时(Ephemeral)：当客户端和服务端断开连接后，所创建的ZNode(节点)会自动删除  
+持久(Persistent)：当客户端和服务端断开连接后，所创建的ZNode(节点)不会删除
+##### Curator
+Apache Curator是一个比较完善的zookeeper客户端框架，通过封装的一套高级API，简化了ZooKeeper的操作，因此在实际应用中都是使用Apache Curator来操作zookeeper的。
+##### Curator Service Discovery
+生产者可以将自己的服务注册到Zookeeper中，创建一个临时节点（当连接断开之后，节点将被删除），存放服务信息（url，ip，port等信息），把这些临时节点都存放在以serviceName命名的节点下面，这样我们要获取某个服务的地址，只需要到Zookeeper中找到这个path，然后就可以读取到里面存放的服务信息。  
+Curator Service Discovery实现了上述过程，它对此抽象出了ServiceInstance、ServiceProvider、ServiceDiscovery三个接口，通过它我们可以很轻易的实现Service Discovery。
+###### ServiceInstance
+Curator中使用ServiceInstance作为一个服务实例，ServiceInstances具有名称，ID，地址，端口和/或ssl端口以及可选的payload(用户定义）。ServiceInstances以下列方式序列化并存储在ZooKeeper中：  
+![picture](https://gitee.com/su_ya_kang/NettyRpc/raw/master/picture/zookeeper-service-instance.png)  
+###### ServiceProvider
+ServiceProvider是主要的抽象类。它封装了发现服务为特定的命名服务和提供者策略。提供者策略方案是从一组给定的服务实例选择一个实例。有三个捆绑策略:轮询调度、随机和粘性(总是选择相同的一个)。
+ServiceProviders是使用ServiceProviderBuilder分配的。消费者可以从从ServiceDiscovery获取ServiceProviderBuilder（参见下文）。ServiceProviderBuilder允许您设置服务名称和其他几个可选值。
+必须通过调用start()来启动ServiceProvider 。完成后，您应该调用close()。ServiceProvider中有以下两个重要方法：
+```
+/** 获取一个服务实例 */
+public ServiceInstance<T> getInstance() throws Exception;
+/** 获取所有的服务实例 */
+public Collection<ServiceInstance<T>> getAllInstances() throws Exception;
+```
+###### ServiceDiscovery
+为了创建ServiceProvider,你必须有一个ServiceDiscovery。它是由一个ServiceDiscoveryBuilder创建。开始必须调用start()方法。当使用完成应该调用close()方法。
+#### 3.2.2 服务详细信息ServiceDetails
+为了在ZNode节点上保存服务的详细信息，需要自定义数据结构`ServiceDetails`，其中保存了服务地址、端口等信息。
+```java
+public class ServiceDetails {
+    //服务名称
+    String serviceName;
+    //版本号
+    String version;
+    //服务地址
+    String address;
+    //服务端口号
+    Integer port;
+}
+```
+#### 3.2.3 负载均衡
+当客户端请求服务时，若有多个服务端提供服务，客户端需要从中选择一个进行通信。为了避免某些服务端被频繁选中导致压力过大甚至崩溃，
+因此RPC框架需要提供负载均衡算法避免上述情况，这里简单的只提供随机选择和轮询选择，待扩展。
+#### 3.2.4 服务注册ServiceRegister
+定义服务注册接口`ServiceRegister`，其具有函数`register()`实现服务注册、`unRegister()`实现服务取消注册，`close()`在关闭时释放资源。
+生产者者在启动时，调用`register()`方法注册服务，服务端关闭时调用`unRegister()`取消其提供的服务。
+```java
+public interface ServiceRegister {
+    void register(ServiceDetails serviceDetails) throws Exception;
+    void unRegister(ServiceDetails serviceDetails) throws Exception;
+    void close() throws Exception;
+}
+```
+##### ZookeeperServiceRegister
+`ZookeeperServiceRegister`实现接口`ServiceRegister`，初始化时，开启客户端和服务发现`serviceDiscovery`，并将其存储在关闭列表`closeableList`。
+```java
+public class ZookeeperServiceRegister implements ServiceRegister{
+    public ZookeeperServiceRegister(String address) throws Exception {
+        client= CuratorFrameworkFactory.newClient(address, new ExponentialBackoffRetry(1000,3));
+        client.start();
+        closeableList.add(client);
+        serviceDiscovery= ServiceDiscoveryBuilder.builder(ServiceDetails.class).client(client).basePath(ROOT_PATH).serializer(new JsonInstanceSerializer<>(ServiceDetails.class)).build();
+        serviceDiscovery.start();
+        closeableList.add(serviceDiscovery);
+    }
+    //...
+}
+```
+`register()`构造一个带有`ServiceDetails`信息的`ServiceInstance`，调用`serviceDiscovery`的`registerService`方法将服务加入。
+```java
+public class ZookeeperServiceRegister implements ServiceRegister {
+    //...
+    @Override
+    public void register(ServiceDetails serviceDetails) throws Exception {
+        ServiceInstance<ServiceDetails> serviceInstance = ServiceInstance.<ServiceDetails>builder().address(serviceDetails.getAddress()).port(serviceDetails.getPort()).name(serviceDetails.getServiceName()).payload(serviceDetails).build();
+        serviceDiscovery.registerService(serviceInstance);
+    }
+    //...
+}
+```
+`unRegister()`构造一个带有`ServiceDetails`信息的`ServiceInstance`，调用`serviceDiscovery`的`unregisterService`方法将服务取消注册。
+```java
+public class ZookeeperServiceRegister implements ServiceRegister {
+    //...
+    @Override
+    public void unRegister(ServiceDetails serviceDetails) throws Exception {
+        ServiceInstance<ServiceDetails>serviceInstance=ServiceInstance.<ServiceDetails>builder().address(serviceDetails.getAddress()).port(serviceDetails.getPort()).name(serviceDetails.getServiceName()).payload(serviceDetails).build();
+        serviceDiscovery.unregisterService(serviceInstance);
+    }
+    //...
+}
+```
+`close()`方法则调用`closeableList`中每个元素的`close()`方法。
+```java
+public class ZookeeperServiceRegister implements ServiceRegister{
+    //...
+    @Override
+    public void close() throws Exception {
+        synchronized (this){
+            for(Closeable closeable:closeableList){
+                CloseableUtils.closeQuietly(closeable);
+            }
+            closeableList.clear();
+        }
+    }
+}
+```
+#### 3.2.5 服务发现ServiceDetailsDiscovery
+定义服务发现接口`ServiceDetailsDiscovery`，其具有函数`discovery()`实现服务发现、`close()`在关闭时释放资源。
+消费者在调用服务方法时，会调用`discovery()`方法根据服务名称找到服务详细信息`ServiceDetails`，之后使用`ServiceDetails`中的服务端地址端口号发起请求。
+```java
+public interface ServiceDetailsDiscovery {
+    ServiceDetails discovery(String ServiceName) throws Exception;
+    void close() throws Exception;
+}
+```
+##### ZookeeperServiceDetailsDiscovery
+构造函数和`close()`函数基本同`ZookeeperServiceRegister`。`discovery()`客户端的负载均衡策略构造相应的`ServiceProvider`，
+`ServiceProvider`提供的`getInstance()`方法返回要求的`ServiceInstance`。
+```java
+public class ZookeeperServiceDetailsDiscovery implements ServiceDetailsDiscovery{
+    @Override
+    public ServiceDetails discovery(String serviceName) throws Exception {
+        ProviderStrategy<ServiceDetails> strategy=null;
+        switch (LoadBalanceType.findType(loadBalance)){
+            case RANDOM -> {
+                strategy=new RandomStrategy<ServiceDetails>();
+                break;
+            }
+            case ROUND_ROBIN -> {
+                strategy=new RoundRobinStrategy<ServiceDetails>();
+                break;
+            }
+        }
+        ServiceProvider<ServiceDetails>provider=serviceDiscovery.serviceProviderBuilder().serviceName(serviceName)
+                .providerStrategy(strategy).build();
+        provider.start();
+        closeableList.add(provider);
+        ServiceDetails serviceDetails= provider.getInstance().getPayload();
+        return serviceDetails;
+    }
+}
+```
+
+
+
+
+
+
+##参考链接
+1. [如何手撸一个较为完整的RPC框架](https://juejin.cn/post/6992867064952127524)
+2. [如何理解是 TCP 面向字节流协议？](https://xiaolincoding.com/network/3_tcp/tcp_stream.html)
+3. [Netty笔记(九)之ByteBuf使用详解](https://blog.csdn.net/usagoole/article/details/88024517)
+4. [RPC框架调用过程详解](https://blog.csdn.net/heyeqingquan/article/details/78006587)
+5. [利用Zookeeper(Curator)实现 - 服务注册与发现](https://blog.csdn.net/u010277958/article/details/92397384)
+
+
+
 
 
  

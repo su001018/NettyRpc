@@ -7,17 +7,13 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="api" />
-        <module name="server-spring-boot-starter" />
         <module name="common" />
+        <module name="server-spring-boot-starter" />
         <module name="provider" />
         <module name="client-spring-boot-starter" />
         <module name="consumer" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="client-spring-boot-starter" target="17" />
-      <module name="server-spring-boot-starter" target="17" />
-    </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">

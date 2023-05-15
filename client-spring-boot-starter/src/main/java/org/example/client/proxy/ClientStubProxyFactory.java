@@ -8,6 +8,9 @@ import java.lang.reflect.Proxy;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ClientStubProxyFactory {
+    public ClientStubProxyFactory(){
+        System.out.println("ClientStubProxyFactory Constructor");
+    }
     private ConcurrentHashMap<Class<?>, Object>proxyCache=new ConcurrentHashMap<>();
 
     public <T>T getProxy(ServiceDetailsDiscovery serviceDetailsDiscovery, Class<T>clazz,
